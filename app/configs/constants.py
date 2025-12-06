@@ -1,0 +1,36 @@
+# --- Constants ---
+REMOVE_TAGS = {
+    "script",
+    "style",
+    "noscript",
+    "meta",
+    "link",
+    "iframe",
+    "header",
+    "footer",
+    "nav",
+    "form",
+    "button",
+}
+
+ALLOWED_TAGS = {
+    "html",
+    "body",
+    "p",
+    "br",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "td",
+    "th",
+}

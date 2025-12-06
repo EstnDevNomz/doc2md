@@ -1,0 +1,17 @@
+.vscode/*
+__pycache__/
+venv/
+env/
+*.pyc
+.DS_Store
+.idea/
+*.log
+*.sqlite3
+*.pdf
+*.db
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.coverage

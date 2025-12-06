@@ -8,6 +8,7 @@ env/
 *.log
 *.sqlite3
 *.pdf
+*.md
 *.db
 *.egg-info/
 dist/

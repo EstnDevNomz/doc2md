@@ -42,7 +42,6 @@ def get_lines(blocks):
 
 def sort_spans_by_layout(spans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    __summary__
     Y좌표와 X좌표 기준으로 span들을 레이아웃 순서대로 정렬
 
     Args:
@@ -70,10 +69,18 @@ def get_md_by_pdf(file_path: str):
         page = doc.load_page(i)
         dicts = page.get_text("dict")
         # words = page.get_text("words")
+        contents = page.get_contents()
+        displaylist = page.get_displaylist()
+        drawings = page.get_drawings()
+        table_object = page.find_tables()
+        text_blocks = page.get_text_blocks()
+        xobjects = page.get_xobjects() 
+        oc_items = page.get_oc_items()
+        svg_img = page.get_svg_image()
 
         blocks = filter_img_blocks(dicts["blocks"])
         lines = get_lines(blocks)
-
+        
         if len(lines) == 0:
             continue
 
@@ -99,6 +106,12 @@ def get_md_by_pdf(file_path: str):
                 bbox = s.get("bbox")
                 if bbox and len(bbox) >= 4:
                     x0, y0, x1, y1 = bbox[0], bbox[1], bbox[2], bbox[3]
+                    
+                    # 2-up-layout: 우측 페이지의 좌표를 좌측 페이지 기준으로 변환
+                    if x0 > page_w:
+                        x0 = x0 - page_w
+                        x1 = x1 - page_w
+                        
                     center_x = (x0 + x1) / 2.0
                 else:
                     # fallback: treat as left if no bbox
@@ -113,6 +126,15 @@ def get_md_by_pdf(file_path: str):
             for sub_spans in (left_spans, right_spans):
                 if not sub_spans:
                     continue
+                
+                # detect side caption zones
+                caption_zones = detect_side_caption_zones(
+                    sub_spans,
+                    body_font_size=body_styles["font_size"],
+                    page_w=page_w / 2.0,
+                    page_h=page_h
+                )
+                
                 cleand_spans = sanitize_spans(
                     sub_spans,
                     {
@@ -121,12 +143,21 @@ def get_md_by_pdf(file_path: str):
                         "page_h": page_h,
                         # use half width for normalization heuristics
                         "page_w": page_w / 2.0,
+                        "tables": table_object.tables,
+                        "caption_zones": caption_zones,
                     },
                 )
 
                 text = "".join([ss.get("text", "") for ss in cleand_spans])
                 pages.append(text)
         else:
+            # detect side caption zones
+            caption_zones = detect_side_caption_zones(
+                solted_spans,
+                body_font_size=body_styles["font_size"],
+                page_w=page_w,
+                page_h=page_h
+            )
             cleand_spans = sanitize_spans(
                 solted_spans,
                 {
@@ -134,6 +165,8 @@ def get_md_by_pdf(file_path: str):
                     "body_font_color": body_styles["font_color"],
                     "page_h": page_h,
                     "page_w": page_w,
+                    "tables": table_object.tables,
+                    "caption_zones": caption_zones,
                 },
             )
 

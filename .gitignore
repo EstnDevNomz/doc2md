@@ -16,3 +16,4 @@ build/
 *.egg
 .pytest_cache/
 .coverage
+.md

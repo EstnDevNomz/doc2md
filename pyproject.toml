@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "doc2md"
+version = "0.1.0"
+description = "Convert universal documents to Markdown preprocessor smartly."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "doc2md maintainers", email = "maintainers@doc2md.local" }
+]
+license = { text = "MIT" }
+keywords = ["markdown", "document", "converter", "cli"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Text Processing :: Markup"
+]
+
+[project.urls]
+Homepage = "https://example.com/doc2md"
+Repository = "https://example.com/doc2md/repo"
+Issues = "https://example.com/doc2md/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/doc2md"]

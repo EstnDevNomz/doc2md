@@ -1,35 +1,14 @@
 import re
 from typing import Dict, Any, List, Tuple
+from app import *
 
 
-# 기본 캡션 패턴 예시: "<...>", "그림 1", "도표 3" 같은 것들
-DEFAULT_SIDE_CAPTION_PATTERN = re.compile(
-    r"(그림|도표|Figure|Fig\.?|Table)\s*\d+",
-    re.IGNORECASE,
-)
-
-BBox = Tuple[float, float, float, float]
-
-
-def detect_side_caption_zones(
-    spans: List[Dict[str, Any]],
-    body_font_size: float,
-    page_w: float,
-    page_h: float,
-    *,
-    caption_font_scale: float = 0.95,
-    max_caption_len: int = 120,
-    min_candidates: int = 2,
-    min_body_len: int = 20,
-    symmetry_tol: float = 0.05,         # 좌우 여백 비율 차이가 이 이하면 "중앙 정렬" 취급
-    max_side_ratio: float = 0.5,        # 안전 상한
-    default_side_ratio: float = 0.12,   # 중앙 레이아웃에서 줄 최소 사이드 영역
-) -> Dict[str, float]:
+def detect_side_caption_zones(spans: List[Dict[str, Any]], **opts) -> Dict[str, float]:
     """
-    각 페이지에서 사이드 캡션이 차지하고 있는 영역 비율을 추정하는 함수.
+    각 페이지에서 사이드 캡션이 차지하고 있는 영역 비율을 추정하는 함수
     - 본문 영역을 먼저 추정해서, 본문이 차지하는 중앙/한쪽 몰림 여부를 보고
-      좌/우 캡션 비율을 보정한다.
-    - 이 문서군에서는 "사이드 캡션은 한쪽만 존재"한다는 가정도 반영.
+      좌/우 캡션 비율을 보정한다
+    - "사이드 캡션은 한쪽만 존재"한다는 가정도 반영
 
     Returns:
         {
@@ -38,6 +17,22 @@ def detect_side_caption_zones(
             "caption_y_ratio": float,   # 0~0.5, 상·하단 머리말/꼬리말로 제외할 비율
         }
     """
+
+    body_font_size: float = opts.get("body_font_size", 10)
+    page_w: float = opts.get("page_w", 0)
+    page_h: float = opts.get("page_h", 0)
+    caption_font_scale: float = opts.get("caption_font_scale", 0.95)
+    max_caption_len: int = opts.get("max_caption_len", 120)
+    min_candidates: int = opts.get("min_candidates", 2)
+    min_body_len: int = opts.get("min_body_len", 20)
+    symmetry_tol: float = opts.get(
+        "symmetry_tol", 0.05
+    )  # 좌우 여백 비율 차이가 이 이하면 "중앙 정렬" 취급
+    max_side_ratio: float = opts.get("max_side_ratio", 0.5)  # 안전 상한
+    default_side_ratio: float = (
+        opts.get("default_side_ratio", 0.12),
+    )  # 중앙 레이아웃에서 줄 최소 사이드 영역
+
     # 페이지 사이즈 이상하면 그냥 기본값
     if page_w <= 0 or page_h <= 0:
         return {
@@ -50,7 +45,7 @@ def detect_side_caption_zones(
     # 1. 본문 후보 / 캡션 후보 분리
     # -----------------------------
     caption_candidates: List[Dict[str, Any]] = []
-    body_boxes: List[BBox] = []
+    body_boxes: List[BBOX] = []
     ys: List[float] = []
 
     for span in spans:
@@ -74,11 +69,13 @@ def detect_side_caption_zones(
         is_caption_len = len(text) <= max_caption_len
 
         if is_caption_font and is_caption_len:
-            caption_candidates.append({
-                "bbox": (x0, y0, x1, y1),
-                "text": text,
-                "size": size,
-            })
+            caption_candidates.append(
+                {
+                    "bbox": (x0, y0, x1, y1),
+                    "text": text,
+                    "size": size,
+                }
+            )
             continue
 
         # 본문 후보 조건: 폰트는 거의 본문급, 길이도 어느 정도 이상
@@ -120,8 +117,8 @@ def detect_side_caption_zones(
     # -----------------------------
     # 4. 캡션 후보 좌/우 분리 (본문 기준이 아닌 페이지 기준)
     # -----------------------------
-    left_boxes: List[BBox] = []
-    right_boxes: List[BBox] = []
+    left_boxes: List[BBOX] = []
+    right_boxes: List[BBOX] = []
 
     mid_x = page_w / 2.0
 
@@ -220,7 +217,7 @@ def is_side_caption(
     left_zone_ratio: float = 0.24,
     right_zone_ratio: float = 0.08,
     caption_y_ratio: float = 0.02,
-    max_caption_len: int = 120,
+    max_caption_len: int = 35,
     pattern: re.Pattern | None = None,
 ) -> bool:
     """
@@ -231,8 +228,8 @@ def is_side_caption(
         *body_font_size (float): 본문 폰트 크기
         *page_h (float): 페이지 높이
         *page_w (float): 페이지 너비
-        left_zone_ratio (float): 왼쪽 사이드 캡션 영역 비율 (0~1), 예: 0.25 → 왼쪽 25%
-        right_zone_ratio (float): 오른쪽 사이드 캡션 영역 비율 (0~1), 예: 0.2 → 오른쪽 20%
+        left_zone_ratio (float): 왼쪽 사이드 캡션 영역 비율 (0~1), e.g. 0.25 → 왼쪽 25%
+        right_zone_ratio (float): 오른쪽 사이드 캡션 영역 비율 (0~1), e.g. 0.2 → 오른쪽 20%
         caption_y_ratio (float): 상하단 머리말/꼬리말 영역 제외 비율 (0~1)
         max_caption_len (int): 캡션 텍스트 최대 길이
         pattern (re.Pattern | None): 캡션을 판별할 정규식 패턴
@@ -254,7 +251,7 @@ def is_side_caption(
 
     x0, y0, x1, y1 = bbox
 
-    # 2-up-layout: 우측 페이지의 좌표를 좌측 페이지 기준으로 변환
+    # 2-up-layout 기준 좌표 보정: 우측 페이지의 좌표를 좌측 페이지 기준으로 변환
     if x0 > page_w:
         x0 = x0 - page_w
         x1 = x1 - page_w
@@ -262,9 +259,23 @@ def is_side_caption(
     x_center = (x0 + x1) / 2
     y_center = (y0 + y1) / 2
 
-    # 상단/하단 머리말/꼬리말, 페이지 번호 영역은 제외 (필요 없으면 caption_y_ratio=0으로)
     vertical_margin = page_h * caption_y_ratio
-    if y_center < vertical_margin or y_center > page_h - vertical_margin:
+    left_side_margin = page_w * left_zone_ratio
+    right_side_margin = page_w * right_zone_ratio
+    is_vertical_range = (
+        y_center < vertical_margin or y_center > page_h - vertical_margin
+    )
+    is_left_side_range = (
+        x_center < left_side_margin or x_center > page_w - left_side_margin
+    )
+    is_right_side_range = (
+        x_center < right_side_margin or x_center > page_w - right_side_margin
+    )
+    is_horizontal_range = is_left_side_range or is_right_side_range
+
+    # 상단/하단 머리말/꼬리말, 페이지 번호 영역은 제외 (필요 없으면 caption_y_ratio=0으로)
+    # 단, 왼쪽 사이드 캡션 영역은 포함
+    if is_vertical_range and not is_horizontal_range:
         return False
 
     # 좌/우 사이드 영역 정의
@@ -287,8 +298,7 @@ def is_side_caption(
         return True
 
     # 패턴이 아니더라도, 사이드 영역 + 본문 이하 크기 + 너무 긴 문장이 아니면 캡션으로 취급
-    if reasonable_length:
+    if reasonable_length or len(text) < 2:
         return True
 
     return False
-

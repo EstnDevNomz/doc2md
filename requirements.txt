@@ -1,0 +1,4 @@
+kiwipiepy==0.22.1
+kiwipiepy_model==0.22.0
+numpy==2.2.6
+tqdm==4.67.1

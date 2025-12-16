@@ -1,23 +1,20 @@
 from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, Optional, Tuple, List
+from app import *
 
 
-UNIT_PATTERN = re.compile(r"^\s*\(단위\s*[:：]", re.UNICODE)
-
-BBox = Tuple[float, float, float, float]  # (x0, y0, x1, y1)
-
-def is_unit_line(text: str) -> bool:
+def _is_unit_line(text: str) -> bool:
     return bool(UNIT_PATTERN.match(text))
 
-# ---------- bbox 유틸 ---------- #
 
-def _bbox_area(bbox: BBox) -> float:
+# ---------- bbox 유틸 ---------- #
+def _bbox_area(bbox: BBOX) -> float:
     x0, y0, x1, y1 = bbox
     return max(0.0, x1 - x0) * max(0.0, y1 - y0)
 
 
-def _bbox_intersection(a: BBox, b: BBox) -> float:
+def _bbox_intersection(a: BBOX, b: BBOX) -> float:
     ax0, ay0, ax1, ay1 = a
     bx0, by0, bx1, by1 = b
 
@@ -31,7 +28,7 @@ def _bbox_intersection(a: BBox, b: BBox) -> float:
     return (ix1 - ix0) * (iy1 - iy0)
 
 
-def _overlap_ratio(span_bbox: BBox, region_bbox: BBox) -> float:
+def _overlap_ratio(span_bbox: BBOX, region_bbox: BBOX) -> float:
     """
     span_bbox와 region_bbox의 겹치는 비율(0~1).
     기준: span 영역 중 몇 %가 region 안에 들어가는가.
@@ -39,15 +36,17 @@ def _overlap_ratio(span_bbox: BBox, region_bbox: BBox) -> float:
     inter = _bbox_intersection(span_bbox, region_bbox)
     if inter <= 0.0:
         return 0.0
+
     area = _bbox_area(span_bbox)
     if area <= 0.0:
         return 0.0
+
     return inter / area
 
 
 def _best_match_row_index(
-    span_bbox: BBox,
-    row_bboxes: List[BBox],
+    span_bbox: BBOX,
+    row_bboxes: List[BBOX],
     min_overlap: float,
 ) -> Optional[int]:
     """
@@ -69,16 +68,18 @@ def _best_match_row_index(
 
 # ---------- 메인: Table 객체 기반 분류 ---------- #
 
+
 def classify_span_with_tables(
     span: Dict[str, Any],
     tables: Iterable[Any],
     *,
     # 표 제목 영역은 "표 전체 bbox 바로 위의 띠"로 가정
-    # ratio 기준: 표 높이 * subject_band_ratio 만큼 위쪽 영역을 제목 후보 영역으로 삼음
-    subject_band_ratio: float = 0.15,
+    # ratio 기준: 표 높이 * subject_band_margin_top 만큼 위쪽 영역을 제목 후보 영역으로 삼음
+    subject_band_margin_top: float = 10,
     min_overlap_subject: float = 0.4,
     min_overlap_header: float = 0.4,
     min_overlap_body: float = 0.5,
+    page_w: float | None = None,
 ) -> Optional[str]:
     """
     PyMuPDF page.find_tables()가 리턴한 table 객체들을 기반으로
@@ -86,26 +87,31 @@ def classify_span_with_tables(
 
     tables: page.find_tables().tables
 
-    리턴:
-      - "[table_subject]"
-      - "[table_header]"
-      - "[table_body_row_{n}]"
+    Return:
+      - TABLE_SUBJECT
+      - TABLE_HEADER
+      - TABLE_BODY_ROW_{n}
       - 해당 없음: None
     """
     sx0, sy0, sx1, sy1 = span["bbox"]
-    span_bbox: BBox = (sx0, sy0, sx1, sy1)
+
+    if sx0 > page_w:
+        sx0 = sx0 - page_w
+        sx1 = sx1 - page_w
+
+    span_bbox: BBOX = (sx0, sy0, sx1, sy1)
 
     for table in tables:
         # table.bbox: 표 전체 영역
         tx0, ty0, tx1, ty1 = table.bbox
-        table_bbox: BBox = (tx0, ty0, tx1, ty1)
+        table_bbox: BBOX = (tx0, ty0, tx1, ty1)
 
-        # 1) 표 제목 영역: 표 바로 위 subject_band_ratio 만큼의 수평 띠
-        #    ex) 표 높이의 15% 만큼 바로 위 영역을 제목 후보로 본다.
+        # 1) 표 제목 영역: 표 바로 위 subject_band_margin_top 만큼의 수평 띠
+        #    e.g. 표 높이의 10 만큼 바로 위 영역을 제목 후보로 본다.
         table_height = max(1.0, ty1 - ty0)
-        subject_height = table_height * subject_band_ratio
+        subject_height = table_height + subject_band_margin_top
 
-        subject_bbox: BBox = (
+        subject_bbox: BBOX = (
             tx0,
             max(0.0, ty0 - subject_height),
             tx1,
@@ -117,14 +123,14 @@ def classify_span_with_tables(
             text = span.get("text", "").strip()
 
             # (1) 단위 줄이면 별도 태깅
-            if is_unit_line(text):
-                return "[table_unit]"
+            if _is_unit_line(text):
+                return TABLE_UNIT
 
             # (2) 그 외는 제목으로 태깅
-            return "[table_subject]"
+            return TABLE_SUBJECT
 
         # 2) 헤더 영역: table.header.bbox 사용
-        header_bbox: Optional[BBox] = None
+        header_bbox: Optional[BBOX] = None
         if getattr(table, "header", None) is not None:
             hx0, hy0, hx1, hy1 = table.header.bbox
             header_bbox = (hx0, hy0, hx1, hy1)
@@ -132,10 +138,10 @@ def classify_span_with_tables(
         if header_bbox is not None:
             header_overlap = _overlap_ratio(span_bbox, header_bbox)
             if header_overlap >= min_overlap_header:
-                return "[table_header]"
+                return TABLE_HEADER
 
         # 3) 바디 행 영역: table.rows[i].bbox 사용
-        row_bboxes: List[BBox] = []
+        row_bboxes: List[BBOX] = []
         for row in getattr(table, "rows", []):
             rx0, ry0, rx1, ry1 = row.bbox
             row_bboxes.append((rx0, ry0, rx1, ry1))
@@ -147,6 +153,6 @@ def classify_span_with_tables(
                 min_overlap=min_overlap_body,
             )
             if row_idx is not None:
-                return f"[table_body_row_{row_idx + 1}]"
+                return f"table-row-{row_idx + 1}"
 
     return None

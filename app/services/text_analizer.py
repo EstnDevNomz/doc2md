@@ -404,4 +404,5 @@ def iter_tf_idf_keywords(tokenized_docs: List[str], topk: int = 10):
 
         # 점수 기준 내림차순 정렬 - 상위 topk개만 유지
         top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:topk]
+        
         yield i, top

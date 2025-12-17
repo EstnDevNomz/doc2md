@@ -15,11 +15,110 @@ import logging
 import fitz
 import html2text
 import asyncio
-from app import *
+from layout_pdf2md import *
 from typing import *
-from .services.text_analizer import markdown, classify_spans, filter_spans
 from .services.text_box_clustering import cluster_by_x_rails, get_y_rails
 from .services.caption_analizer import detect_side_caption_zones
+from .services.text_analizer import (
+    markdown,
+    classify_spans,
+    filter_spans,
+    collect_header_footer_candidates,
+    get_body_font_style,
+    analize_morphemes,
+    normalize_synonym_tokens,
+    iter_tf_idf_keywords,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@atimeit
+async def pdf2md(file_path) -> None:
+    """실행 함수
+    Args:
+        file_path (str): 파일 경로
+    """
+    logger.info(f"[async] pdf2md > started\nfile_path: {file_path}")
+    name, ext = os.path.splitext(file_path)
+
+    # PDF 추상 객체를 가져온다
+    total_index, ast = await get_pdf_ast_from(file_path)
+    logger.info(f"[async] pdf2md > get_pdf_ast_from > extracted {total_index} AST")
+
+    # PDF 전체 분석 집계 결과 -> 파이프라인 ingestion
+    header_or_footer, body_styles = await analize_pdf(ast)
+
+    file_text: str = ""
+    # run file streaming: 정규화
+    for page_idx, page in iter_page_pipeline(ast, header_or_footer, body_styles):
+        file_text += page
+        logger.debug(
+            f"[async] pdf2md > [generator] iter_page_pipeline > page {page_idx+1}/{total_index} successed"
+        )
+
+    logger.info(f"[async] pdf2md > page {total_index} successed")
+
+    # 형태소분석(불용어, 복합병사 2-gram 보정) -> TF-IDF 분류 -> 라벨링
+    with open(f"{name}.md", "w", encoding="utf-8") as f:
+        _morphemes: List[List[str]] = []
+
+        # <SEP> 태그로 섹션을 분할한다
+        sections = file_text.split(f"<{SEP}>")
+
+        for section in sections:
+            # 섹션 단위 형태소 분석
+            _nouns = analize_morphemes(section, 50)
+            _morphemes.append(_nouns)
+            logger.debug(
+                f"[async] pdf2md > analize_morphemes > page {page_idx+1}/{total_index} successed"
+            )
+
+        # 명사 동의어 표준화
+        morphemes = [normalize_synonym_tokens(doc, SYN_MAP) for doc in _morphemes]
+        logger.info(
+            f"[async] pdf2md > normalize_synonym_tokens > nouns {_morphemes} successed"
+        )
+
+        # TF-IDF 수행하여 도메인 후보 명사를 추출 -> Meta 필드 추가
+        for i, keywords in iter_tf_idf_keywords(morphemes, 3):
+            # 본문 내용이 너무 없으면 메타 안넣음
+            if len(sections[i]) > 100 or len(keywords) > 0:
+                _keys = [k[0] for k in keywords]
+                _meta = f'[[META]] keywords: {",".join(_keys)}\n'
+                sections[i] = re.sub(f"<{META}>", _meta, sections[i])
+            else:
+                sections[i] = re.sub(f"<{META}>", "", sections[i])
+
+            f.write(sections[i])
+
+            logger.debug(
+                f"[async] pdf2md > [generator] iter_tf_idf_keywords > section {i} successed"
+            )
+
+        # with open(f"형태소분석_2_gram.md", "a") as f:
+        #     f.write(str(keywords_ls) + "\n")
+
+        logger.info(f"[async] pdf2md > page {total_index} successed")
+
+
+@atimeit
+async def get_pdf_ast_from(file_path: str):
+    ast = fitz.open(file_path)
+    return ast.page_count, ast
+
+
+@atimeit
+async def analize_pdf(doc: fitz.Document):
+    logger.info(f"[async] pdf2md > analize_pdf> start")
+    tasks = [
+        collect_header_footer_candidates(doc),  # TODO: 헤더 푸터 메타로 활용 예정
+        get_body_font_style(doc),  # 본문 폰트 크기
+    ]
+    results = asyncio.gather(*tasks)
+    logger.info(f"[async] pdf2md > analize_pdf> results: {results}")
+
+    return await results
 
 
 @timeit_iter
@@ -48,19 +147,20 @@ def iter_page_pipeline(doc: fitz.Document, _: Dict, body_styles: Dict[str, float
         y_rails: List[float] = get_y_rails(spans, padding=1)
 
         arranged_spans: List[List[Dict]] = []
-        target_spans = spans
+        target_spans = sort_spans_by_layout(spans)
 
         for i, rail in enumerate(y_rails):
             # 절개선 기준으로 "오른쪽 영역"을 재귀적으로 절개하여 "왼쪽 영역"의 spans를 모은다
             left_spans, right_spans = _classify_spans_by_splited_page(
                 target_spans, page_w, rail
             )
-            # 너무 작은 간격의 레일의 spans 날린다
-            if (
-                i > 0
-                and i < len(y_rails) - 1
-                and y_rails[i + 1] - rail < MIN_RAIL_WIDTH
-            ):
+            split_width = rail - y_rails[i - 1]
+            len_y_rail = len(y_rails) - 1
+
+            if 3 < split_width < MIN_RAIL_WIDTH:
+                left_spans = []
+
+            if len(left_spans) < 5:
                 left_spans = []
 
             if left_spans:
@@ -104,12 +204,12 @@ def iter_page_pipeline(doc: fitz.Document, _: Dict, body_styles: Dict[str, float
         yield page_idx, md
 
 
-def _classify_spans_by_splited_page(spans, page_w, mid_x):
+def _classify_spans_by_splited_page(spans, page_w, y_rail):
     """분할된 페이지에서 spans를 분류한다 (분할선 기준 왼쪽 spans 반환)
     Args:
         spans (List[Dict]): source spans
         page_w (float): page width
-        mid_x (float): coordinate of split rail
+        y_rail (float): coordinate of split rail
     Returns:
         List[Dict]: target spans
     """
@@ -121,36 +221,22 @@ def _classify_spans_by_splited_page(spans, page_w, mid_x):
         if bbox and len(bbox) >= 4:
             x0, y0, x1, y1 = bbox[0], bbox[1], bbox[2], bbox[3]
 
-            # 2-up-layout: 우측 페이지의 좌표를 좌측 페이지 기준으로 변환
-            if x0 > page_w:
-                x0 = x0 - page_w
-                x1 = x1 - page_w
+            # # 2-up-layout: 우측 페이지의 좌표를 좌측 페이지 기준으로 변환
+            # if x0 > page_w:
+            #     x0 = x0 - page_w
+            #     x1 = x1 - page_w
 
-            center_x = (x0 + x1) / 2.0
+            x1 = x1
         else:
             # fallback: treat as left if no bbox
-            center_x = 0
+            x1 = 0
 
-        if center_x < mid_x:
+        if x1 < y_rail:
             left_spans.append(s)
         else:
             right_spans.append(s)
 
     return left_spans, right_spans
-
-
-def _sort_spans_by_layout(spans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Y좌표와 X좌표 기준으로 span들을 레이아웃 순서대로 정렬
-
-    Args:
-        spans (List[Dict[str, Any]]): span 리스트
-
-    Returns:
-        List[Dict[str, Any]]: 정렬된 span 리스트
-    """
-    # bbox: [x0, y0, x1, y1]
-    return sorted(spans, key=lambda s: (s["bbox"][1], s["bbox"][0], s["size"]))
 
 
 def _filter_img_blocks(blocks):

@@ -10,11 +10,10 @@ import os
 import re
 import copy
 import glob
-import logging
 import fitz
 import html2text
 import asyncio
-from app import *
+from layout_pdf2md import *
 from typing import *
 from .services.text_analizer import *
 

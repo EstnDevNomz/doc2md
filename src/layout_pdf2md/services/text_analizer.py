@@ -2,10 +2,13 @@ import re
 import math
 import logging
 from collections import Counter, defaultdict
-from app import *
+from layout_pdf2md import *
 from typing import List, Any, Dict, Tuple
 from .table_analizer import classify_span_with_tables
 from .caption_analizer import is_side_caption, detect_side_caption_zones
+
+
+logger = logging.getLogger(__name__)
 
 
 def _is_page_number_span(span, page_h, page_w, bottom_ratio: float = 0.08):
@@ -158,7 +161,6 @@ async def get_body_font_style(doc) -> Dict[str, float | int]:
     }
 
 
-@timeit
 def _classify_span(span, **opts) -> str:
     """
     span의 타입을 분류한다
@@ -340,24 +342,26 @@ def markdown(spans: List[Dict]) -> str:
     _spans = [s.get("text", "") for s in spans]
     return "".join(_spans)
 
+
 @timeit
 def analize_morphemes(text: str, topk: int, min_token: int = 50) -> List[str]:
     results = []
-    
+
     try:
         from kiwipiepy import Kiwi
+
         kiwi = Kiwi()
         results = kiwi.analyze(text)
     except Exception as e:
-        logging.warn("Please install kiwipiepy package..")
+        logger.warn("Please install kiwipiepy package..")
         return []
-    
+
     kiwi = Kiwi()
     results = kiwi.analyze(text)
-    
+
     if not results:
         return []
-    
+
     tokens = results[0][0]
     if len(tokens) < min_token:
         return []
@@ -404,5 +408,5 @@ def iter_tf_idf_keywords(tokenized_docs: List[str], topk: int = 10):
 
         # 점수 기준 내림차순 정렬 - 상위 topk개만 유지
         top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:topk]
-        
+
         yield i, top

@@ -1,6 +1,6 @@
 import re
 from typing import Dict, Any, List, Tuple
-from app import *
+from layout_pdf2md import *
 
 
 def detect_side_caption_zones(spans: List[Dict[str, Any]], **opts) -> Dict[str, float]:

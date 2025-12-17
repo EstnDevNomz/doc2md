@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "layout_pdf2md"
+version = "0.1.0"
+description = "Convert universal documents to Markdown preprocessor smartly."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "EstnDevNomz", email = "exorsa1525@gmail.com" }
+]
+license = { text = "MIT" }
+keywords = ["markdown", "document", "converter", "cli"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Text Processing :: Markup"
+]
+dependencies = [
+  "pdfplumber>=0.11,<0.12",
+  "PyMuPDF>=1.26,<1.27",
+  "kiwipiepy>=0.22",
+  "html2text>=2025.4.15"
+]
+
+[project.urls]
+Homepage = "https://example.com/layout_pdf2md"
+Repository = "https://example.com/layout_pdf2md/repo"
+Issues = "https://example.com/layout_pdf2md/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/layout_pdf2md"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

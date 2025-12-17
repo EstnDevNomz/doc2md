@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, Optional, Tuple, List
-from app import *
+from layout_pdf2md import *
 
 
 def _is_unit_line(text: str) -> bool:

@@ -48,7 +48,7 @@ def cluster_by_x_rails(
 
 
 def get_y_rails(
-    spans: List[Dict[str, Any]], padding=1, min_count: int = 10
+    spans: List[Dict[str, Any]], padding=1, min_count: int = 5
 ) -> List[float]:
     """페이지 분할을 위해 세로 기준선을 계산하여 반환한다
     Args:
@@ -58,7 +58,7 @@ def get_y_rails(
     Returns:
         List[float]: 분할 기준선 목록
     """
-    # 1. x0 값만 추출
+    # 1. x 값만 추출
     x0s = [round(span["bbox"][0]) - padding for span in spans]
     x1s = [round(span["bbox"][2]) + padding for span in spans]
 

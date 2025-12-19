@@ -46,7 +46,7 @@ META = "META"
 
 # MD 생성시 허용되는 span 타입
 WHITELIST = [
-    # PAGE_NUMBER,
+    PAGE_NUMBER,
     H1,
     H2,
     # CAPTION,

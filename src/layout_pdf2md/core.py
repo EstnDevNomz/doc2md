@@ -33,7 +33,7 @@ from .services.text_analizer import (
 logger = logging.getLogger(__name__)
 
 
-@atimeit
+@timer
 async def pdf2md(file_path) -> None:
     """실행 함수
     Args:
@@ -47,17 +47,18 @@ async def pdf2md(file_path) -> None:
     logger.info(f"[async] pdf2md > get_pdf_ast_from > extracted {total_index} AST")
 
     # PDF 전체 분석 집계 결과 -> 파이프라인 ingestion
-    header_or_footer, body_styles = await analize_pdf(ast)
+    page_meta, body_styles = await analize_pdf(ast)
 
     file_text: str = ""
     # run file streaming: 정규화
-    for page_idx, page in iter_page_pipeline(ast, header_or_footer, body_styles):
+    for page_idx, page in iter_page_pipeline(ast, page_meta, body_styles):
         file_text += page
         logger.debug(
             f"[async] pdf2md > [generator] iter_page_pipeline > page {page_idx+1}/{total_index} successed"
         )
 
     logger.info(f"[async] pdf2md > page {total_index} successed")
+    ast.close()
 
     # 형태소분석(불용어, 복합병사 2-gram 보정) -> TF-IDF 분류 -> 라벨링
     with open(f"{name}.md", "w", encoding="utf-8") as f:
@@ -65,11 +66,13 @@ async def pdf2md(file_path) -> None:
 
         # <SEP> 태그로 섹션을 분할한다
         sections = file_text.split(f"<{SEP}>")
+        del file_text
 
         for section in sections:
             # 섹션 단위 형태소 분석
-            _nouns = analize_morphemes(section, 50)
+            _nouns = analize_morphemes(section, 30)
             _morphemes.append(_nouns)
+            _nouns = []
             logger.debug(
                 f"[async] pdf2md > analize_morphemes > page {page_idx+1}/{total_index} successed"
             )
@@ -79,6 +82,7 @@ async def pdf2md(file_path) -> None:
         logger.info(
             f"[async] pdf2md > normalize_synonym_tokens > nouns {_morphemes} successed"
         )
+        del _morphemes
 
         # TF-IDF 수행하여 도메인 후보 명사를 추출 -> Meta 필드 추가
         for i, keywords in iter_tf_idf_keywords(morphemes, 3):
@@ -102,15 +106,18 @@ async def pdf2md(file_path) -> None:
         logger.info(f"[async] pdf2md > page {total_index} successed")
 
 
-@atimeit
+@mem
 async def get_pdf_ast_from(file_path: str):
+    """PDF파싱"""
     ast = fitz.open(file_path)
     return ast.page_count, ast
 
 
-@atimeit
+@mem
 async def analize_pdf(doc: fitz.Document):
+    """PDF특징분석"""
     logger.info(f"[async] pdf2md > analize_pdf> start")
+    
     tasks = [
         collect_header_footer_candidates(doc),  # TODO: 헤더 푸터 메타로 활용 예정
         get_body_font_style(doc),  # 본문 폰트 크기
@@ -121,14 +128,9 @@ async def analize_pdf(doc: fitz.Document):
     return await results
 
 
-@timeit_iter
-def iter_page_pipeline(doc: fitz.Document, _: Dict, body_styles: Dict[str, float]):
-    """페이지 단위 추출 제너레이터 (PDF -> MD)
-    Args:
-        doc (fitz.Document): 문서 객체
-    Returns:
-        Tuple[int, str]: page_idx, markdown_text
-    """
+@mem
+def iter_page_pipeline(doc: fitz.Document, page_meta: Dict, body_styles: Dict[str, float]):
+    """제너레이터(PDF -> MD)"""
     # 페이지 단위 데이터 스트리밍을 시작한다
     for page_idx in range(doc.page_count):
         page = doc.load_page(page_idx)
@@ -172,12 +174,12 @@ def iter_page_pipeline(doc: fitz.Document, _: Dict, body_styles: Dict[str, float
 
         # 마지막 페이지도 모은다
         arranged_spans += target_spans
-        target_spans = []
 
         opts1 = {
             "body_font_size": body_styles["font_size"],
             "page_w": page_w,
             "page_h": page_h,
+            "page_meta": page_meta
         }
         # detect side caption zones
         caption_zones = detect_side_caption_zones(arranged_spans, **opts1)
@@ -189,6 +191,7 @@ def iter_page_pipeline(doc: fitz.Document, _: Dict, body_styles: Dict[str, float
             "page_w": page_w,
             "tables": table_object.tables,
             "caption_zones": caption_zones,
+            "page_meta": page_meta
         }
         # [태깅] span 단위로 텍스트 분류 태깅
         _spans = classify_spans(arranged_spans, **opts2)
@@ -198,7 +201,7 @@ def iter_page_pipeline(doc: fitz.Document, _: Dict, body_styles: Dict[str, float
 
         # 스팬을 까서 마크다운 생성한다
         md = markdown(_spans)
-        arranged_spans = []
+        del page, dicts, table_object, arranged_spans, _spans, opts1, opts2, target_spans
 
         # 스트림 출력한다
         yield page_idx, md

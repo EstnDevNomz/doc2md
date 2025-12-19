@@ -57,13 +57,13 @@ def _sort_spans_by_layout(spans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(spans, key=lambda s: (s["bbox"][1], s["bbox"][0], s["size"]))
 
 
-@atimeit
+@timer
 async def get_pdf_ast_from(file_path: str):
     ast = fitz.open(file_path)
     return ast.page_count, ast
 
 
-@atimeit
+@timer
 async def analize_pdf(doc: fitz.Document):
     tasks = [
         collect_header_footer_candidates(doc),  # TODO: 헤더 푸터 메타로 활용 예정

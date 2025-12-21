@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "layout_pdf2md"
-version = "0.1.0"
+version = "0.1.4"
 description = "Convert universal documents to Markdown preprocessor smartly."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,7 +30,8 @@ dependencies = [
   "pdfplumber>=0.11,<0.12",
   "PyMuPDF>=1.26,<1.27",
   "kiwipiepy>=0.22",
-  "html2text>=2025.4.15"
+  "html2text>=2025.4.15",
+  "pyparsing>=3.2.5"
 ]
 
 [project.urls]

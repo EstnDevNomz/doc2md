@@ -48,7 +48,7 @@ def cluster_by_x_rails(
 
 
 def get_y_rails(
-    spans: List[Dict[str, Any]], padding=1, min_count: int = 5
+    spans: List[Dict[str, Any]], padding: int = 1, min_count: int = 5
 ) -> List[float]:
     """페이지 분할을 위해 세로 기준선을 계산하여 반환한다
     Args:
@@ -72,3 +72,27 @@ def get_y_rails(
 
     # 4. 튜플로 반환
     return sorted(list(set(x0_res + x1_res)))
+
+
+def _classify_spans_by_splited_page(spans, page_w, y_rail):
+    """분할된 페이지에서 spans를 분류한다 (분할선 기준 왼쪽 spans 반환)
+    Args:
+        spans (List[Dict]): source spans
+        page_w (float): page width
+        y_rail (float): coordinate of split rail
+    Returns:
+        List[Dict]: target spans
+    """
+    left_spans = []
+    right_spans = []
+
+    for s in spans:
+        bb = s.get("bbox")
+        x0, y0, x1, y1 = bb[0], bb[1], bb[2], bb[3]
+
+        if x1 <= y_rail:
+            left_spans.append(s)
+        else:
+            right_spans.append(s)
+
+    return left_spans, right_spans

@@ -2,7 +2,7 @@ import re
 import math
 import logging
 from kiwipiepy import Kiwi
-from functools import lru_cache
+from functools import lru_cache, reduce
 from collections import Counter, defaultdict
 from layout_pdf2md import *
 from typing import List, Any, Dict, Tuple
@@ -54,28 +54,30 @@ def _is_page_number_span(span, page_h, page_w, bottom_ratio: float = 0.08):
 
 
 @mem
-async def collect_header_footer_candidates(ast):
+def analyze_doc_meta(ast):
     pos_dict = defaultdict(list)  # (rounded_y, text) -> [page_idx...]
 
-    for page_idx, page in enumerate(ast):
-        page_h = page.rect.height
-        blocks = page.get_text("dict")["blocks"]
+    _dicts = list(map(lambda x: (x[0], x[1].get_text("dict")), enumerate(ast)))
+    _blocks = list(map(lambda x: (x[0], x[1].get("blocks")), _dicts))
+    _block_parts = [
+        (row[0], x) for row in _blocks for x in row[1] if x.get("type") == TEXT
+    ]
+    _lines = [(row[0], x) for row in _block_parts for x in row[1].get("lines", [])]
 
-        for b in blocks:
-            if b["type"] != 0:
-                continue
+    del _dicts, _blocks, _block_parts
 
-            for line in b["lines"]:
-                y0 = line["bbox"][1]
-                y_key = round(y0, 1)
-                line_text = "".join(s["text"] for s in line["spans"]).strip()
+    for page_idx, line in _lines:
+        y0 = line["bbox"][1]
+        y_key = round(y0, 1)
+        line_text = "".join(s["text"] for s in line["spans"]).strip()
 
-                if not line_text:
-                    continue
+        if not line_text:
+            continue
 
-                pos_dict[(y_key, line_text)].append(page_idx)
-                line_text = ""
-        del blocks
+        pos_dict[(y_key, line_text)].append(page_idx)
+        line_text = ""
+
+    del _lines
 
     # 여러 페이지에 반복되는 것만
     header_footer = {
@@ -88,8 +90,7 @@ async def collect_header_footer_candidates(ast):
     return header_footer
 
 
-@mem
-async def _collect_span_style_stats(ast) -> Tuple[Counter, Counter]:
+def _collect_span_style_stats(ast) -> Tuple[Counter, Counter]:
     """
     PDF 문서에서 span 단위의 폰트 크기와 색상을 수집하여 통계화하는 함수
 
@@ -136,7 +137,8 @@ async def _collect_span_style_stats(ast) -> Tuple[Counter, Counter]:
     return size_counter, color_counter
 
 
-async def get_body_font_style(ast) -> Dict[str, float | int]:
+@mem
+def analyze_doc_style(ast) -> Dict[str, float | int]:
     """
     문서 전체에서 '본문'으로 추정되는 가장 흔한 폰트 크기와 색상을 반환
 
@@ -150,7 +152,7 @@ async def get_body_font_style(ast) -> Dict[str, float | int]:
                 "font_color": int,   # 본문 폰트 색상 (0xRRGGBB)
             }
     """
-    size_counter, color_counter = await _collect_span_style_stats(ast)
+    size_counter, color_counter = _collect_span_style_stats(ast)
 
     # 가장 흔한 폰트 크기
     body_font_size = size_counter.most_common(1)[0][0] if size_counter else None
@@ -159,8 +161,8 @@ async def get_body_font_style(ast) -> Dict[str, float | int]:
     body_font_color = color_counter.most_common(1)[0][0] if color_counter else None
 
     return {
-        "font_size": body_font_size,
-        "font_color": body_font_color,
+        "body_font_size": body_font_size,
+        "body_font_color": body_font_color,
     }
 
 
@@ -173,20 +175,26 @@ def _classify_span(span, **opts) -> str:
     tables: List[Any] = opts.get("tables", [])
     ratios: Dict[str, float] = opts.get("caption_zones", {})
     max_font_size: float = opts.get("max_font_size", 40)
-    page_meta: float = opts.get("page_meta", "")
-    
-
+    doc_meta: float = opts.get("doc_meta", "")
+    bbox = span["bbox"]
     font_size = span["size"]
     font_color = span["color"]
     flags = span["flags"]
     text = span["text"].strip()
-
     font_name = span["font"].lower()
     is_bold = ("bold" in font_name) or ("bd" in font_name)
 
+    # 페이지 헤더
+    if doc_meta.get((round(bbox[1], 1), text)):  # TODO: 페이지 번호 활용
+        if len(text) < 3:
+            return DEL
+        return FIXED_ELEMENT
+
+    # 페이지 번호
     if _is_page_number_span(span, page_h, page_w):
         return PAGE_NUMBER
 
+    # 빈줄 제거
     if not text:
         return EMPTY
 
@@ -236,7 +244,6 @@ def _classify_span(span, **opts) -> str:
     return BODY
 
 
-@mem
 def classify_spans(spans: List[Dict], **opts: Dict[str, Any]) -> List[Dict[str, str]]:
     """
     normalize spans by classifying them into categories
@@ -285,10 +292,15 @@ def filter_spans(spans: List[Dict], filters_ls: List[str]) -> List[Dict]:
 @mem
 def markdown(spans: List[Dict]) -> str:
     """spans -> 마크다운 포맷"""
+    spliter = f"<{SEP}>"
+
     for i, span in enumerate(spans):
+        text = span.get("text")
+        y0 = round(span.get("bbox")[1], 1)
+
         if span.get("_type") == H1:
             sep = (
-                f"<{SEP}>"
+                spliter
                 if i > 0
                 and spans[i - 1]["_type"] not in [H1, H2]
                 and len(span["text"]) > 3
@@ -299,7 +311,7 @@ def markdown(spans: List[Dict]) -> str:
 
         if span.get("_type") == H2:
             sep = (
-                f"<{SEP}>"
+                spliter
                 if i > 0
                 and spans[i - 1]["_type"] not in [H1, H2]
                 and len(span["text"]) > 3
@@ -323,19 +335,38 @@ def markdown(spans: List[Dict]) -> str:
             continue
 
         if span.get("_type") == PAGE_NUMBER:
-            span["text"] = f'[{span.get("_type", "")}] {span["text"]}'
+            span["text"] = f'[{span.get("_type", "")}] {span["text"]}---\n'
             continue
 
         span["text"] = f'[{span.get("_type", "")}] {span.get("text", "")}'
 
-    _spans = [s.get("text", "") for s in spans]
-    return "".join(_spans)
+    __spans = []
+    for i, span in enumerate(spans):
+        x0, y0, x1, y1 = span.get("bbox")
+        text = span.get("text")
+        if i > 0:
+            _x0, _y0, _x1, _y1 = spans[i-1].get("bbox")
+            _text = spans[i-1].get("text")
+            
+            # 동일 라인 스팬 병합(y0, x0 정렬되었다는 전제하에)
+            if abs(y0 - _y0) < 2:
+                # <META> 태그가 앞에 있으면 뒤로 옮긴다
+                if f"<{META}>" in text:
+                    text = re.sub(f"<{META}>", "", text)
+                    text += f"<{META}>"
+                __spans[i-1] += text
+                __spans.append("")
+                continue
+        __spans.append(text)
+    
+    return "".join(__spans)
 
 
+@mem
 @lru_cache(maxsize=1)
 def get_kiwi() -> Kiwi:
     return Kiwi()
-        
+
 
 @mem
 @lru_cache(maxsize=128)
@@ -366,6 +397,7 @@ def normalize_synonym_tokens(ast, syn_map):
     return [syn_map.get(t, t) for t in ast]
 
 
+@timer
 def iter_tf_idf_keywords(tokenized_docs: List[str], topk: int = 10):
     """
     TF-IDF 수행한다; 형태소 품질에 100% 의존

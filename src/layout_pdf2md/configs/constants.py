@@ -1,11 +1,11 @@
-# ===
+# ---
 # name: Constants
 # desc: 상수명은 반드시 대문자로 선언
-# release version: v0.1.0
+# release version: v0.1.1
 # author: Lee
 # regdate: 2025-12-13
 # moddate: 2025-12-13
-# ===
+# ---
 
 # pymupdf에서 추출된 dict 객체 분류
 TEXT = 0
@@ -36,6 +36,9 @@ EMPTY = "empty"
 H1 = "h1"
 H2 = "h2"
 H3 = "h3"
+DEL = "del"
+KEYWORDS = "keywords"
+FIXED_ELEMENT = "fixed-element"
 CAPTION = "caption"
 BODY = "body"
 TABLE_UNIT = "table-unit"
@@ -43,19 +46,22 @@ TABLE_SUBJECT = "table-subject"
 TABLE_HEADER = "table-header"
 SEP = "SEP"
 META = "META"
+MIN_SECTION_LEN = 100
 
 # MD 생성시 허용되는 span 타입
 WHITELIST = [
-    PAGE_NUMBER,
+    FIXED_ELEMENT,
+    # PAGE_NUMBER,
     H1,
     H2,
     # CAPTION,
     BODY,
     SEP,
+    # DEL,
 ]
 
 # 페이지 세로 수직 분할시 최소 너비 제한
-MIN_RAIL_WIDTH = 200
+MIN_RAIL_WIDTH = 100
 
 # 동의어 정규화
 SYN_MAP = {

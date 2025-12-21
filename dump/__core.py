@@ -1,10 +1,10 @@
-# ===
+# ---
 # name: [변환기] PDF > MD
 # desc: PDF 데이터를 LLM 친화적으로 재해석
 # release version: v0.1.0
 # author: Lee
 # regdate: 2025-12-04
-# ===
+# ---
 
 import os
 import re
@@ -67,7 +67,7 @@ async def get_pdf_ast_from(file_path: str):
 async def analize_pdf(doc: fitz.Document):
     tasks = [
         collect_header_footer_candidates(doc),  # TODO: 헤더 푸터 메타로 활용 예정
-        get_body_font_style(doc),  # 본문 폰트 크기
+        analyze_doc_style(doc),  # 본문 폰트 크기
     ]
     results = asyncio.gather(*tasks)
 
